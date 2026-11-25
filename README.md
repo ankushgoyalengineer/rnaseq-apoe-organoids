@@ -59,6 +59,27 @@ The count columns use the authors' sample names (ADR_5 to ADR_14), not GEO acces
 
 ![MDS plot of the six samples, coloured by genotype](images/mds_plot.png)
 
+## Week 2: an independent check with DESeq2 (in progress)
+
+**Notebook:** `notebooks/03_deseq2.ipynb` (R)
+
+Week 1 asked whether I could get the same answer as the authors. Week 2 asks whether the answer holds with a different statistical method. I ran DESeq2 on exactly the same 16,581 genes, so that only the method differs. To keep the gene sets identical, I recalculated the authors' filter (at least 1 count per million in at least 3 samples) and confirmed it gives the same 16,581 genes. I turned off DESeq2's outlier detection and independent filtering so that every gene receives a result, as in edgeR.
+
+### Results so far
+
+| | edgeR (likelihood ratio test) | DESeq2 (Wald test) |
+|---|---|---|
+| Significant genes (FDR < 0.05) | 5,127 | 4,548 |
+| Higher in APOE4 | 2,454 | 2,124 |
+| Lower in APOE4 | 2,673 | 2,424 |
+
+DESeq2 calls about 11% fewer genes significant. To find out why, I compared each part of the two analyses:
+
+- **Fold changes are nearly identical** (Pearson r = 0.9997, Spearman r = 0.99999). Both methods estimate the same size and direction of change for almost every gene.
+- **Normalisation agrees to within 1% for every sample.** DESeq2's size factors and edgeR's TMM-adjusted library sizes, put on the same scale, differ by at most 0.009.
+
+So the difference comes from the p-values: either the statistical test itself, or each method's estimate of how variable each gene is. Next, I'll run DESeq2 with a likelihood ratio test to separate these two causes, and compare the genes the methods disagree on.
+
 ## Data
 
 The data are not included in this repository. To reproduce the analysis, download into `data/`:
