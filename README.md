@@ -63,9 +63,11 @@ The count columns use the authors' sample names (ADR_5 to ADR_14), not GEO acces
 
 **Notebook:** `notebooks/03_deseq2.ipynb` (R)
 
-Week 1 asked whether I could get the same answer as the authors. Week 2 asks whether the answer holds with a different statistical method. I ran DESeq2 on exactly the same 16,581 genes, so that only the method differs. To keep the gene sets identical, I recalculated the authors' filter (at least 1 count per million in at least 3 samples) and confirmed it gives the same 16,581 genes. I turned off DESeq2's outlier detection and independent filtering so that every gene receives a result, as in edgeR.
+Week 1 asked whether I could get the same answer as the authors. Week 2 asks whether the answer holds with a different statistical method. If a result appears with only one tool, it could be a quirk of that tool; if two independent methods agree, it's more likely to be real.
 
-### Results so far
+I ran DESeq2 (1.50.2) on exactly the same 16,581 genes as edgeR, so that only the method differs. To keep the gene sets identical, I recalculated the authors' filter (at least 1 count per million in at least 3 samples) and confirmed it gives the same 16,581 genes. I turned off DESeq2's outlier detection and independent filtering, so that every gene receives a result, as in edgeR.
+
+### The two methods mostly agree
 
 | | edgeR (likelihood ratio test) | DESeq2 (Wald test) |
 |---|---|---|
@@ -73,12 +75,59 @@ Week 1 asked whether I could get the same answer as the authors. Week 2 asks whe
 | Higher in APOE4 | 2,454 | 2,124 |
 | Lower in APOE4 | 2,673 | 2,424 |
 
-DESeq2 calls about 11% fewer genes significant. To find out why, I compared each part of the two analyses:
+- **4,531 genes are significant in both methods:** 99.6% of DESeq2's significant genes, and 88.4% of edgeR's.
+- **The two never disagree on direction:** every gene that goes up in one goes up in the other.
+- **The disagreement is one-sided:** 596 genes are significant only in edgeR, and just 17 only in DESeq2.
 
-- **Fold changes are nearly identical** (Pearson r = 0.9997, Spearman r = 0.99999). Both methods estimate the same size and direction of change for almost every gene.
-- **Normalisation agrees to within 1% for every sample.** DESeq2's size factors and edgeR's TMM-adjusted library sizes, put on the same scale, differ by at most 0.009.
+### Finding the cause by elimination
 
-So the difference comes from the p-values: either the statistical test itself, or each method's estimate of how variable each gene is. Next, I'll run DESeq2 with a likelihood ratio test to separate these two causes, and compare the genes the methods disagree on.
+A differential expression analysis has several parts, and a difference in any of them could explain the gap. I checked each in turn:
+
+| Possible cause | Check | Result |
+|---|---|---|
+| Different genes | Same filtered gene set in both | Identical: **ruled out** |
+| Normalisation | DESeq2 size factors against edgeR's TMM-adjusted library sizes, on the same scale | Within 1% for every sample: **ruled out** |
+| Fold changes | Correlation of estimated changes, gene by gene | Pearson r = 0.9997: **ruled out** |
+| The statistical test | DESeq2 rerun with a likelihood ratio test, like edgeR's | 4,545 genes, against 4,548 with the Wald test: **ruled out** |
+| Dispersion (how variable each method thinks each gene is) | Compared directly, below | **The cause** |
+
+![edgeR and DESeq2 fold changes, gene by gene](images/edgeR_DESeq2_comparison.png)
+
+### The genes the methods disagree on
+
+| Group | Genes | Median expression (baseMean) | Median size of change (\|log2FC\|) |
+|---|---|---|---|
+| Significant in both | 4,531 | 243 | 0.91 |
+| edgeR only | 596 | **34** | 0.81 |
+| DESeq2 only | 17 | **1,349** | **0.38** |
+
+The genes only edgeR calls significant are **lowly expressed,** about seven times lower than the genes both methods agree on, while their changes are almost as large. The few genes only DESeq2 calls significant are the opposite: highly expressed genes with small changes, which many reads allow to be measured precisely.
+
+### Confirming the cause: dispersion
+
+Both methods model counts with the negative binomial distribution, in which **dispersion** measures how much a gene varies between replicates beyond counting noise. With only three replicates per group, each gene's own estimate is unreliable, so both methods borrow information across genes, pulling each gene towards a trend for genes of similar expression. They do this differently: edgeR pulls genes firmly towards the trend, while DESeq2 leaves genes that look unusually variable at their own, higher estimate.
+
+I compared the two methods' dispersion estimates for every gene:
+
+| Group | Median ratio of dispersions (DESeq2 ÷ edgeR) |
+|---|---|
+| All genes | 1.08 |
+| Significant in both | 1.06 |
+| **edgeR only** | **1.97** |
+| DESeq2 only | 0.93 |
+
+![Gene-by-gene dispersion estimates from edgeR and DESeq2](images/logscale_comparison_by_group.png)
+
+*Dispersion estimates from edgeR (x) and DESeq2 (y), log scales; the dashed line marks equal estimates. The 596 genes significant only in edgeR (orange) sit mostly above the line: DESeq2 estimates them as about twice as variable, so it is less confident in their changes. The 17 genes significant only in DESeq2 (green) are stable, highly expressed genes where DESeq2 estimates slightly lower variability.*
+
+### Conclusion
+
+The published result is robust to the choice of method: edgeR and DESeq2 agree on the direction of every change, and on more than 99% of DESeq2's significant genes. Where they differ, it is in lowly expressed genes, where the evidence is thinnest and the two methods' different ways of estimating variability lead to different levels of confidence. Neither is simply right: edgeR is more sensitive for low-count genes, and DESeq2 more cautious.
+
+### Still to do
+
+- PyDESeq2, a Python re-implementation of DESeq2, compared with the R version
+- Benjamini–Hochberg correction implemented from scratch, and checked against edgeR's FDR values
 
 ## Data
 
